@@ -1,0 +1,9 @@
+<resources>
+	<string name="app_name">MyPlaces</string>
+	<string name="title_activity_login">Login</string>
+	<string name="title_activity_maps">Map</string>
+	<string name="facebook_app_id">196763310763956</string>
+	<string name="facebook_login_error">Something went wrong</string>
+	<string name="facebook_log_out">Log Out</string>
+	<string name="delete_pin">Delete pin</string>
+</resources>
