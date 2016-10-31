@@ -23,6 +23,8 @@ import com.facebook.login.widget.LoginButton;
 
 public class LoginActivity extends AppCompatActivity implements FacebookCallback<LoginResult> {
 
+	public static final String KEY_FACEBOOK_PROFILE_ID = "facebook_profile_id";
+
 	private CallbackManager mCallbackManager;
 	private CoordinatorLayout mLayout;
 	private PlacesDbHelper mDbHelper;
@@ -55,8 +57,10 @@ public class LoginActivity extends AppCompatActivity implements FacebookCallback
 			protected void onCurrentProfileChanged(Profile oldProfile, Profile currentProfile) {
 				mProfileId = currentProfile.getId();
 				loadMap();
+				mProfileTracker.stopTracking();
 			}
 		};
+		mProfileTracker.startTracking();
 	}
 
 	@Override
@@ -80,6 +84,7 @@ public class LoginActivity extends AppCompatActivity implements FacebookCallback
 		if (mProfileId != null) {
 			mDbHelper.loginUser(mProfileId);
 			Intent intent = new Intent(this, MapsActivity.class);
+			intent.putExtra(KEY_FACEBOOK_PROFILE_ID, mProfileId);
 			startActivity(intent);
 			finish();
 		}

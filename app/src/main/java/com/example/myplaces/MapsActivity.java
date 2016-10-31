@@ -4,13 +4,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
-import android.os.PersistableBundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.view.ActionMode;
+import android.view.ActionMode;
 import android.view.Menu;
 import android.view.MenuItem;
 
@@ -19,6 +18,8 @@ import com.example.myplaces.model.ClusterMarker;
 import com.facebook.AccessToken;
 import com.facebook.login.LoginManager;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -27,13 +28,17 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.maps.android.clustering.Cluster;
 import com.google.maps.android.clustering.ClusterManager;
+import com.google.maps.android.clustering.algo.GridBasedAlgorithm;
+import com.google.maps.android.clustering.view.DefaultClusterRenderer;
 
 import java.util.List;
 
-public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMarkerDragListener, GoogleApiClient.ConnectionCallbacks,
-		UserPinsFragment.PinsLoadedCallback, GoogleMap.OnMyLocationButtonClickListener, ClusterManager.OnClusterClickListener<ClusterMarker>, ActionMode.Callback {
+public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMarkerDragListener,
+		GoogleApiClient.ConnectionCallbacks, LocationListener, UserPinsFragment.PinsLoadedCallback,
+		GoogleMap.OnMyLocationButtonClickListener, ClusterManager.OnClusterClickListener<ClusterMarker> {
 
 	private static final int ACCESS_LOCATION_REQUEST_CODE = 100;
 	private static final String USER_PINS_LOADER_FRAGMENT_TAG = "frg_user_pins_loader";
@@ -42,11 +47,45 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 	private GoogleMap mMap;
 	private ClusterManager<ClusterMarker> mClusterManager;
 	private PlacesDbHelper mDbHelper;
+	private String mProfileId;
 	private GoogleApiClient mGoogleApiClient;
+	private LocationRequest mLocationRequest;
 	private Location mCurrentLocation;
 	private android.view.ActionMode mActionMode;
-	private Marker mActiveMarker;
 	private ClusterMarker mEditableClasterMarker;
+	private Marker mActiveMarker;
+	private ActionMode.Callback mActionModeCallback = new ActionMode.Callback() {
+		@Override
+		public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+			mode.getMenuInflater().inflate(R.menu.marker_menu, menu);
+			return true;
+		}
+
+		@Override
+		public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+			return false;
+		}
+
+		@Override
+		public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+			switch (item.getItemId()) {
+				case R.id.menu_delete_marker:
+					mClusterManager.removeItem(mEditableClasterMarker);
+					mClusterManager.getMarkerManager().remove(mActiveMarker);
+					mDbHelper.deletePin(mEditableClasterMarker.getId());
+					mActionMode.finish();
+					return true;
+			}
+			return false;
+		}
+
+		@Override
+		public void onDestroyActionMode(ActionMode mode) {
+			mActionMode = null;
+			mEditableClasterMarker = null;
+			mActiveMarker = null;
+		}
+	};
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +99,11 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 					.addConnectionCallbacks(this)
 					.addApi(LocationServices.API)
 					.build();
+		}
+		requestLocation();
+		Bundle extras = getIntent().getExtras();
+		if (extras != null) {
+			mProfileId = extras.getString(LoginActivity.KEY_FACEBOOK_PROFILE_ID);
 		}
 		if (savedInstanceState != null) {
 			mCurrentLocation = savedInstanceState.getParcelable(KEY_USER_CURRENT_LOCATION);
@@ -95,6 +139,12 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 	}
 
 	@Override
+	protected void onResume() {
+		super.onResume();
+		loadUserPins();
+	}
+
+	@Override
 	public void onSaveInstanceState(Bundle outState) {
 		super.onSaveInstanceState(outState);
 		if (mCurrentLocation != null) {
@@ -113,22 +163,35 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 		mMap = googleMap;
 		mClusterManager = new ClusterManager<>(this, mMap);
 		mClusterManager.setOnClusterClickListener(this);
+		mClusterManager.setAlgorithm(new GridBasedAlgorithm<ClusterMarker>());
+		mClusterManager.setRenderer(new DefaultClusterRenderer<ClusterMarker>(getApplicationContext(), mMap, mClusterManager) {
+			@Override
+			protected void onBeforeClusterItemRendered(ClusterMarker item, MarkerOptions markerOptions) {
+				super.onBeforeClusterItemRendered(item, markerOptions);
+				markerOptions.draggable(true);
+			}
+
+			@Override
+			protected void onClusterItemRendered(ClusterMarker clusterItem, Marker marker) {
+				marker.setTag(clusterItem.getId());
+				super.onClusterItemRendered(clusterItem, marker);
+			}
+		});
 		mMap.setOnCameraIdleListener(mClusterManager);
 		mMap.setOnMarkerDragListener(this);
 		mMap.setOnMyLocationButtonClickListener(this);
 		if (mCurrentLocation != null) {
 			mMap.animateCamera(CameraUpdateFactory.newLatLng(new LatLng(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude())));
 		}
-		loadUserPins();
 		showMyLocation();
 	}
 
 	@Override
 	public boolean onMyLocationButtonClick() {
 		ClusterMarker pin = new ClusterMarker(new LatLng(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude()), null);
+		mDbHelper.addPin(pin, mProfileId);
 		mClusterManager.addItem(pin);
 		mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(pin.getPosition(), 13));
-		mDbHelper.addPin(pin);
 		return false;
 	}
 
@@ -136,6 +199,9 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 	public void onConnected(@Nullable Bundle bundle) {
 		if (hasLocationPermission()) {
 			mCurrentLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+			if (mCurrentLocation == null) {
+				LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+			}
 		} else {
 			askForLocationPermission();
 		}
@@ -143,6 +209,11 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
 	@Override
 	public void onConnectionSuspended(int i) {
+	}
+
+	@Override
+	public void onLocationChanged(Location location) {
+		mCurrentLocation = location;
 	}
 
 	@Override
@@ -185,50 +256,22 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 	@Override
 	public void onMarkerDragStart(Marker marker) {
 		if (mActionMode == null) {
-			mActionMode = startActionMode((android.view.ActionMode.Callback) MapsActivity.this);
+			mActionMode = startActionMode(mActionModeCallback);
 		}
 		mActiveMarker = marker;
-		if (mEditableClasterMarker.getPosition() != mActiveMarker.getPosition()) {
-			mEditableClasterMarker = mDbHelper.getMarkerByPosition(marker.getPosition());
+		if (mEditableClasterMarker == null || mEditableClasterMarker.getPosition() != marker.getPosition()) {
+			mEditableClasterMarker = mDbHelper.getMarkerById((String)marker.getTag());
 		}
 	}
 
 	@Override
-	public void onMarkerDrag(Marker marker) {}
+	public void onMarkerDrag(Marker marker) {
+	}
 
 	@Override
 	public void onMarkerDragEnd(Marker marker) {
 		mEditableClasterMarker.setPosition(marker.getPosition());
 		mDbHelper.updatePin(mEditableClasterMarker);
-	}
-
-	@Override
-	public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-		mode.getMenuInflater().inflate(R.menu.marker_menu, menu);
-		return true;
-	}
-
-	@Override
-	public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-		return false;
-	}
-
-	@Override
-	public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-		switch (item.getItemId()) {
-			case R.id.menu_delete_marker:
-				mClusterManager.getClusterMarkerCollection().remove(mActiveMarker);
-				mDbHelper.deletePin(mEditableClasterMarker.getId());
-				mActionMode.finish();
-				return true;
-		}
-		return false;
-	}
-
-	@Override
-	public void onDestroyActionMode(ActionMode mode) {
-		mActionMode = null;
-		mActiveMarker = null;
 	}
 
 	private void showMyLocation() {
@@ -246,6 +289,13 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 			fragment = new UserPinsFragment();
 			fragmentManager.beginTransaction().add(fragment, USER_PINS_LOADER_FRAGMENT_TAG).commit();
 		}
+	}
+
+	private void requestLocation() {
+		mLocationRequest = LocationRequest.create()
+				.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+				.setInterval(10000)
+				.setFastestInterval(5000);
 	}
 
 	private boolean hasLocationPermission() {

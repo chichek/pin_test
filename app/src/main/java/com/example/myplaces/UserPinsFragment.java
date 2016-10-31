@@ -30,6 +30,11 @@ public class UserPinsFragment extends Fragment {
 	public void onCreate(@Nullable Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setRetainInstance(true);
+	}
+
+	@Override
+	public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+		super.onActivityCreated(savedInstanceState);
 		new GetUserPins(PlacesDbHelper.getInstance(getActivity().getApplicationContext())).execute();
 	}
 
@@ -60,7 +65,8 @@ public class UserPinsFragment extends Fragment {
 				if (cursor != null && cursor.moveToFirst()) {
 					while (cursor.moveToNext()) {
 						pins.add(new ClusterMarker(new LatLng(cursor.getDouble(cursor.getColumnIndex(PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE)),
-								cursor.getDouble(cursor.getColumnIndex(PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE))), null));
+								cursor.getDouble(cursor.getColumnIndex(PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE))),
+								cursor.getString(cursor.getColumnIndex(PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID))));
 					}
 					cursor.close();
 				}

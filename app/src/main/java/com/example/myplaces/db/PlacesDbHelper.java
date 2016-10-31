@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteQueryBuilder;
 
 import com.example.myplaces.model.ClusterMarker;
 import com.google.android.gms.maps.model.LatLng;
@@ -34,7 +35,8 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 
 	@Override
 	public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-		db.execSQL(SQL_DELETE_TABLES);
+		db.execSQL(SQL_DELETE_TABLE.replace("[table_name]", PlacesPinContract.User.TABLE_NAME));
+		db.execSQL(SQL_DELETE_TABLE.replace("[table_name]", PlacesPinContract.PinEntry.TABLE_NAME));
 		onCreate(db);
 	}
 
@@ -65,12 +67,12 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 		getWritableDatabase().update(PlacesPinContract.User.TABLE_NAME, values, PlacesPinContract.User.COLUMN_NAME_IS_CURRENT + " = ?", new String[]{"1"});
 	}
 
-	public void addPin(ClusterMarker pin) {
+	public void addPin(ClusterMarker pin, String profileId) {
 		ContentValues values = new ContentValues();
 		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID, pin.getId());
 		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE, pin.getPosition().latitude);
 		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE, pin.getPosition().longitude);
-		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_USER_ID, "(" + SQL_CURRENT_USER_ID + ")");
+		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_USER_ID, profileId);
 		getWritableDatabase().insert(PlacesPinContract.PinEntry.TABLE_NAME, null, values);
 	}
 
@@ -78,15 +80,15 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 		ContentValues values = new ContentValues();
 		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE, pin.getPosition().latitude);
 		values.put(PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE, pin.getPosition().longitude);
-		getWritableDatabase().update(PlacesPinContract.PinEntry.TABLE_NAME, values, PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID + " = '?' ", new String[]{pin.getId()});
+		getWritableDatabase().update(PlacesPinContract.PinEntry.TABLE_NAME, values, String.format(Locale.ENGLISH, "%s = '%s' ", PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID, pin.getId()), null);
 	}
 
-	public ClusterMarker getMarkerByPosition(LatLng position) {
-		Cursor cursor = getReadableDatabase().query(PlacesPinContract.PinEntry.TABLE_NAME,
+	public ClusterMarker getMarkerById(String markerId) {
+		SQLiteDatabase db = getReadableDatabase();
+		Cursor cursor = db.query(PlacesPinContract.PinEntry.TABLE_NAME,
 				new String[]{PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID, PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE, PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE},
-				String.format(Locale.ENGLISH, "%s = %f AND %s = %f AND %s = (%s)", PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE, position.latitude,
-						PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE, position.longitude,
-						PlacesPinContract.PinEntry.COLUMN_NAME_USER_ID, SQL_CURRENT_USER_ID), null, null, null, null, "1");
+				String.format(Locale.ENGLISH, "%s = '%s' ", PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID, markerId),
+				null, null, null, null);
 		ClusterMarker marker = null;
 		if (cursor != null && cursor.moveToFirst()) {
 			double latitude = cursor.getDouble(cursor.getColumnIndex(PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE));
@@ -99,10 +101,10 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 	}
 
 	public void deletePin(String pinId) {
-		getWritableDatabase().delete(PlacesPinContract.PinEntry.TABLE_NAME, PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID + " = '?'", new String[]{pinId});
+		getWritableDatabase().delete(PlacesPinContract.PinEntry.TABLE_NAME, String.format(Locale.ENGLISH, "%s = '%s' ", PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID, pinId), null);
 	}
 
-	private static final int DATABASE_VERSION = 5;
+	private static final int DATABASE_VERSION = 8;
 	private static final String DATABASE_NAME = "PlacesPin.db";
 
 
@@ -118,14 +120,14 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 					PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE + " REAL NOT NULL DEFAULT 0, " +
 					PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE + " REAL NOT NULL DEFAULT 0)";
 
-	private static final String SQL_DELETE_TABLES =
-			"DROP TABLE IF EXISTS " + PlacesPinContract.User.TABLE_NAME + "; " +
-			"DROP TABLE IF EXISTS " + PlacesPinContract.PinEntry.TABLE_NAME;
+	private static final String SQL_DELETE_TABLE =
+			"DROP TABLE IF EXISTS [table_name]";
 
 	private static final String SQL_GET_USER_PINS =
 			"SELECT " +
 					PlacesPinContract.PinEntry.COLUMN_NAME_LATITUDE + ", " +
-					PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE +
+					PlacesPinContract.PinEntry.COLUMN_NAME_LONGITUDE + ", " +
+					PlacesPinContract.PinEntry.COLUMN_NAME_PIN_ID +
 			" FROM " +
 					PlacesPinContract.PinEntry.TABLE_NAME + " pins " +
 			"INNER JOIN " + PlacesPinContract.User.TABLE_NAME + " user " +
@@ -136,10 +138,4 @@ public class PlacesDbHelper extends SQLiteOpenHelper {
 			"REPLACE INTO " + PlacesPinContract.User.TABLE_NAME +
 					" VALUES ('[facebook_id]', 1)";
 
-	private static final String SQL_CURRENT_USER_ID =
-			"SELECT " +
-					PlacesPinContract.User.COLUMN_NAME_FACEBOOK_ID +
-			" FROM " +
-			PlacesPinContract.User.TABLE_NAME +
-			" WHERE " + PlacesPinContract.User.COLUMN_NAME_IS_CURRENT + " = 1";
 }
